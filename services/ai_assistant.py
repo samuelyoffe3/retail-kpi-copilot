@@ -7,8 +7,25 @@ from google.oauth2 import service_account
 def init_vertex_ai():
     """Initializes Vertex AI with secrets."""
     try:
+        # 1. Try Environment Variable (Render Production)
+        import os
+        import json
+        
+        env_creds = os.getenv("GEMINI_SERVICE_ACCOUNT_JSON")
+        if env_creds:
+            info = json.loads(env_creds)
+            gemini_creds = service_account.Credentials.from_service_account_info(info)
+            project_id = info.get("project_id")
+            
+            if not project_id:
+               return False, "project_id missing in JSON"
+               
+            vertexai.init(project=project_id, credentials=gemini_creds)
+            return True, ""
+
+        # 2. Fallback to Streamlit Secrets (Local Dev)
         if "gemini_service_account" not in st.secrets:
-            return False, "Secrets section [gemini_service_account] not found."
+            return False, "Secrets section [gemini_service_account] not found nor GEMINI_SERVICE_ACCOUNT_JSON env var."
             
         gemini_creds = service_account.Credentials.from_service_account_info(
             st.secrets["gemini_service_account"]
