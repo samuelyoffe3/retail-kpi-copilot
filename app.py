@@ -41,6 +41,7 @@ BRANCH_MAP = {
 
 APP_TITLE = "Retail KPI Copilot"
 
+
 def get_drive_service():
     """Authenticates and returns the Google Drive service (Render ENV first, then Streamlit secrets)."""
     try:
@@ -63,6 +64,34 @@ def get_drive_service():
         st.error("Failed to authenticate with Google Drive. Please check your secrets configuration.")
         st.error(f"Drive auth error details: {e}")
         return None
+def get_gemini_credentials():
+    """Loads Gemini/Vertex service account JSON from Render ENV first, then Streamlit secrets."""
+    raw = os.getenv("GEMINI_SERVICE_ACCOUNT_JSON")
+    if raw:
+        info = json.loads(raw)
+    else:
+        info = dict(st.secrets["gemini_service_account"])
+    return service_account.Credentials.from_service_account_info(info), info
+
+
+def init_vertex_ai_once():
+    """Initialize Vertex AI once per session (safe for reruns)."""
+    if st.session_state.get("_vertex_inited"):
+        return
+
+    creds, info = get_gemini_credentials()
+    project_id = info.get("project_id")
+    if not project_id:
+        raise RuntimeError("gemini_service_account JSON missing project_id")
+
+    import vertexai
+    vertexai.init(
+        project=project_id,
+        location=os.getenv("VERTEX_LOCATION", "us-central1"),
+        credentials=creds
+    )
+
+    st.session_state["_vertex_inited"] = True
 
 def load_data(service, folder_id):
     """Searches for 'sales.xlsx' in the folder and returns a DataFrame."""
@@ -238,6 +267,13 @@ def main():
          elif page_key == "ai":
              from ui import tab4
              st.markdown(f"<h2 style='text-align: right; direction: rtl;'>{selected_nav}</h2>", unsafe_allow_html=True)
+            try:
+    init_vertex_ai_once()
+except Exception as e:
+    st.error("שגיאת חיבור ל-AI (Vertex/Gemini). בדוק ENV והרשאות.")
+    st.error(str(e))
+    return
+
              tab4.render(kpis, df_sellers, df_top_qty, df_top_amt, items_df)
 
 def get_file_stream(service, folder_id, filename):
