@@ -264,7 +264,7 @@ def main():
              st.markdown(f"<h2 style='text-align: right; direction: rtl;'>{selected_nav}</h2>", unsafe_allow_html=True)
              tab3.render(items_df)
              
-        elif page_key == "ai":
+         elif page_key == "ai":
              from ui import tab4
              st.markdown(
                  f"<h2 style='text-align: right; direction: rtl;'>{selected_nav}</h2>",
