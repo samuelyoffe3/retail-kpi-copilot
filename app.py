@@ -4,6 +4,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import io
 import logging
+import os
+import json
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -40,18 +42,26 @@ BRANCH_MAP = {
 APP_TITLE = "Retail KPI Copilot"
 
 def get_drive_service():
-    """Authenticates and returns the Google Drive service."""
+    """Authenticates and returns the Google Drive service (Render ENV first, then Streamlit secrets)."""
     try:
-        # Load credentials from Streamlit secrets
-        service_account_info = st.secrets["gcp_service_account"]
+        # 1) Production (Render)
+        raw = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
+        if raw:
+            service_account_info = json.loads(raw)
+        else:
+            # 2) Local dev (Streamlit secrets.toml)
+            service_account_info = dict(st.secrets["gcp_service_account"])
+
         credentials = service_account.Credentials.from_service_account_info(
             service_account_info,
             scopes=["https://www.googleapis.com/auth/drive.readonly"]
         )
-        return build('drive', 'v3', credentials=credentials)
+        return build("drive", "v3", credentials=credentials)
+
     except Exception as e:
         logger.error(f"Failed to create Drive service: {e}")
         st.error("Failed to authenticate with Google Drive. Please check your secrets configuration.")
+        st.error(f"Drive auth error details: {e}")
         return None
 
 def load_data(service, folder_id):
