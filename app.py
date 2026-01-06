@@ -75,23 +75,36 @@ def get_gemini_credentials():
 
 
 def init_vertex_ai_once():
-    """Initialize Vertex AI once per session (safe for reruns)."""
+    """Initialize Vertex AI once per session with enhanced error reporting."""
     if st.session_state.get("_vertex_inited"):
         return
 
-    creds, info = get_gemini_credentials()
-    project_id = info.get("project_id")
-    if not project_id:
-        raise RuntimeError("gemini_service_account JSON missing project_id")
+    try:
+        # 1. טעינת האישורים
+        creds, info = get_gemini_credentials()
+        project_id = info.get("project_id")
+        
+        if not project_id:
+            st.error("❌ שגיאה: project_id חסר ב-Service Account JSON")
+            return
 
-    import vertexai
-    vertexai.init(
-        project=project_id,
-        location=os.getenv("VERTEX_LOCATION", "us-central1"),
-        credentials=creds
-    )
+        # 2. ייבוא הספרייה (בתוך הפונקציה כדי למנוע קריסה בעלייה)
+        import vertexai
+        
+        # 3. אתחול ה-SDK
+        vertexai.init(
+            project=project_id,
+            location=os.getenv("VERTEX_LOCATION", "us-central1"),
+            credentials=creds
+        )
 
-    st.session_state["_vertex_inited"] = True
+        st.session_state["_vertex_inited"] = True
+        logger.info(f"✅ Vertex AI initialized successfully for project: {project_id}")
+        
+    except Exception as e:
+        st.error("⚠️ כשל בחיבור ל-AI של גוגל")
+        st.exception(e) # מציג את פירוט השגיאה הטכנית למפתח
+        logger.error(f"Vertex AI initialization failed: {e}")
 
 def load_data(service, folder_id):
     """Searches for 'sales.xlsx' in the folder and returns a DataFrame."""
