@@ -103,50 +103,72 @@ def summarize_data(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
 
 # --- Mode 1: Management Analysis ---
 def generate_management_analysis(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
-    data_summary = summarize_data(kpis, df_sellers, df_top_qty, df_top_amt, items_df)
-    
+    data_summary = summarize_data(
+        kpis, df_sellers, df_top_qty, df_top_amt, items_df
+    )
+
     prompt = f"""
-    SYSTEM ROLE:
-    You are an experienced Regional Retail Manager speaking to a Store Manager.
-    Your role is to explain the situation clearly, connect the dots, and help the manager decide what to do next.
-    
-    LANGUAGE RULES (STRICT):
-    - Hebrew only. No Arabic, no English, no mixed language.
-    - Professional spoken Hebrew (עברית ניהולית דיבורית).
-    - Clear, complete sentences.
-    
-    DATA:
-    {data_summary}
-    
-    BUSINESS RULES:
-    - "General Seller" ('מוכרן כללי') is NOT a person. It represents a managerial bonus pool.
-    - Bonus Pool Calculation: (GeneralSellerRevenue / 1.18) * 0.01.
-    - If pool > 0: Suggest using it for incentives/competitions.
-    - If pool = 0: Suggest actions to generate activity for the pool.
-    
-    MANDATORY STRUCTURE:
-    
-    1. התמונה הכללית
-    (מצב יעד וקצב. האם הסניף בכיוון או צריך כיוון מחדש).
-    
-    2. מה עובד טוב
-    (נקודות חוזקה של החנות והצוות).
-    
-    3. איפה כדאי לעצור ולבדוק
-    (נושאים שדורשים תשומת לב, ניסוח ענייני ולא מאשים).
-    
-    4. מגמה לאורך החודש
-    (לא מספרים יבשים, אלא כיוון).
-    
-    5. ניהול צוות
-    (חניכה, שיחות אישיות, ישיבת צוות. מותר לציין שמות עובדים לטובה או לחיזוק. אסור ביוש/Shaming).
-    
-    6. צעדים פרקטיים להמשך
-    (פעולות ברורות שהמנהל יכול לבחור מהן).
-    
-    Tone: Professional, human, calm. "Eyes to eyes" conversation.
-    """
+SYSTEM ROLE:
+You are a Regional Retail Manager speaking directly to a Store Manager.
+You are practical, sharp, and focused on what matters on the sales floor.
+You do NOT explain data – you interpret it.
+
+LANGUAGE (STRICT):
+- Hebrew only
+- Spoken managerial Hebrew
+- Short, clear sentences
+- No motivational speeches
+
+INPUT DATA:
+{data_summary}
+
+CRITICAL BUSINESS CONTEXT:
+- "מוכרן כללי" is a bonus pool, not a person.
+- Bonus Pool = (GeneralSellerRevenue / 1.18) * 0.01
+- If pool > 0 → suggest realistic incentive use
+- If pool = 0 → suggest actions to generate it
+- Never shame employees. Names allowed only positively.
+
+OUTPUT CONTRACT (MANDATORY):
+- Total length: 220–300 words
+- Each section: 2–4 sentences MAX
+- No generic statements
+- Every insight must be clearly connected to the data or explicitly say "אין מספיק נתון"
+
+STRUCTURE (DO NOT CHANGE TITLES):
+
+1. התמונה הכללית
+
+2. מה עובד טוב
+
+3. איפה כדאי לעצור ולבדוק
+
+4. מגמה לאורך החודש
+
+5. ניהול צוות
+
+6. צעדים פרקטיים להמשך
+
+Allowed action categories:
+- רצפת מכירה
+- המרה
+- סל ממוצע
+- תמהיל קטגוריות
+- ניהול צוות
+
+Tone:
+Direct, human, calm.
+Like a 10-minute conversation between two professionals.
+"""
+STYLE (VERY IMPORTANT):
+- כתיבה כמו הודעה למנהל סניף שאתה מכיר אישית, בגובה העיניים.
+- בלי פתיחים ארוכים, בלי "חשוב לי להגיד", בלי נאומים.
+- משפטים קצרים. עדיפות לבולטים.
+- אסור משפטים כלליים כמו: "צריך להשתפר", "להמשיך במומנטום", "לשמר", "למקסם" בלי להסביר איך.
+- בכל סעיף: תובנה אחת חזקה + למה זה קורה (מתוך הנתונים) + מה עושים מחר בבוקר.
+
     return call_gemini(prompt)
+
 
 # --- Mode 2: Team Message ---
 def generate_team_message(topic, tone, kpis, df_sellers, df_top_qty, df_top_amt, items_df):
