@@ -1,6 +1,5 @@
 import streamlit as st
-import vertexai
-from vertexai.generative_models import GenerativeModel
+
 from google.oauth2 import service_account
 
 # --- Helper: Init Vertex AI ---
@@ -20,7 +19,10 @@ def init_vertex_ai():
             if not project_id:
                return False, "project_id missing in JSON"
                
+
+            import vertexai   
             vertexai.init(project=project_id, credentials=gemini_creds)
+
             return True, ""
 
         # 2. Fallback to Streamlit Secrets (Local Dev)
@@ -32,6 +34,8 @@ def init_vertex_ai():
         )
         
         project_id = st.secrets["gemini_service_account"]["project_id"]
+        
+        import vertexai
         vertexai.init(project=project_id, credentials=gemini_creds)
         return True, ""
     except Exception as e:
@@ -44,6 +48,7 @@ def call_gemini(prompt):
         return f"System Error: {msg}"
     
     try:
+        from vertexai.generative_models import GenerativeModel
         model = GenerativeModel("gemini-2.5-pro")
         response = model.generate_content(prompt)
         return response.text
@@ -160,13 +165,6 @@ Tone:
 Direct, human, calm.
 Like a 10-minute conversation between two professionals.
 """
-STYLE (VERY IMPORTANT):
-- כתיבה כמו הודעה למנהל סניף שאתה מכיר אישית, בגובה העיניים.
-- בלי פתיחים ארוכים, בלי "חשוב לי להגיד", בלי נאומים.
-- משפטים קצרים. עדיפות לבולטים.
-- אסור משפטים כלליים כמו: "צריך להשתפר", "להמשיך במומנטום", "לשמר", "למקסם" בלי להסביר איך.
-- בכל סעיף: תובנה אחת חזקה + למה זה קורה (מתוך הנתונים) + מה עושים מחר בבוקר.
-
     return call_gemini(prompt)
 
 
