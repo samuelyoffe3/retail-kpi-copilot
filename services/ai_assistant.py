@@ -112,7 +112,7 @@ def generate_management_analysis(kpis, df_sellers, df_top_qty, df_top_amt, items
         kpis, df_sellers, df_top_qty, df_top_amt, items_df
     )
 
-   prompt = f"""
+    prompt = f"""
 SYSTEM ROLE:
 You are an expert Regional Retail Manager analyzing store performance.
 You focus on "Basket Building" and "Transaction Volume" since we lack traffic data.
