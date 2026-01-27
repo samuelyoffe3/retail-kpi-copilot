@@ -199,8 +199,10 @@ def main():
         if selected_branch == "DEMO":
             with st.spinner("טוען נתוני DEMO..."):
                 try:
-                    sales_path = r"APPDEMO\sales_demo.xlsx"
-                    items_path = r"APPDEMO\items_demo.xlsx"
+                    import os
+                    base_dir = os.path.dirname(os.path.abspath(__file__))
+                    sales_path = os.path.join(base_dir, "APPDEMO", "sales_demo.xlsx")
+                    items_path = os.path.join(base_dir, "APPDEMO", "items_demo.xlsx")
                     
                     from services.load_sales import load_and_normalize_sales
                     from services.load_items import load_and_normalize_items
