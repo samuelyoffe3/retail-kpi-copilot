@@ -1,15 +1,15 @@
 import streamlit as st
-
 from google.oauth2 import service_account
+import vertexai
+from vertexai.generative_models import GenerativeModel
+import os
+import json
 
 # --- Helper: Init Vertex AI ---
 def init_vertex_ai():
     """Initializes Vertex AI with secrets."""
     try:
         # 1. Try Environment Variable (Render Production)
-        import os
-        import json
-        
         env_creds = os.getenv("GEMINI_SERVICE_ACCOUNT_JSON")
         if env_creds:
             info = json.loads(env_creds)
@@ -19,10 +19,7 @@ def init_vertex_ai():
             if not project_id:
                return False, "project_id missing in JSON"
                
-
-            import vertexai   
             vertexai.init(project=project_id, credentials=gemini_creds)
-
             return True, ""
 
         # 2. Fallback to Streamlit Secrets (Local Dev)
@@ -35,7 +32,6 @@ def init_vertex_ai():
         
         project_id = st.secrets["gemini_service_account"]["project_id"]
         
-        import vertexai
         vertexai.init(project=project_id, credentials=gemini_creds)
         return True, ""
     except Exception as e:
@@ -48,14 +44,13 @@ def call_gemini(prompt):
         return f"System Error: {msg}"
     
     try:
-        from vertexai.generative_models import GenerativeModel
-        model = GenerativeModel("gemini-2.5-pro")
+        model = GenerativeModel("gemini-2.0-flash-exp") # או gemini-1.5-pro, לבחירתך
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"AI Error: {str(e)}"
 
-# --- Data Summarization ---
+# --- Data Summarization (UPDATED) ---
 def summarize_data(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
     """
     Creates a text summary of the store data for the AI.
@@ -71,7 +66,7 @@ def summarize_data(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
         summary.append(f"Required Daily: {kpis.get('required_daily', 0):,.0f}")
         summary.append(f"Projected Finish: {kpis.get('projected_amount', 0):,.0f}")
         summary.append(f"Projected Percent: {kpis.get('projected_percent', 0):.1f}%")
-        summary.append(f"Days left in month: {kpis.get('days_in_month', 30) - kpis.get('elapsed_days', 0)}")
+        summary.append(f"Days left: {kpis.get('days_in_month', 30) - kpis.get('elapsed_days', 0)}")
     
     # 2. General Seller Stats (Bonus Logic)
     gen_seller_units = 0
@@ -97,16 +92,24 @@ def summarize_data(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
                 f"Avg Items: {row['ממוצע פריטים לעסקה']:.1f} | Complement Ratio: {row['יחס מוצר משלים לעסקה']:.2f}"
             )
             
-    # 4. Top Products
+    # 4. Top Products (QTY) - "The volume drivers"
     if not df_top_qty.empty:
-        summary.append("\n--- TOP PRODUCTS (QTY) ---")
+        summary.append("\n--- TOP PRODUCTS BY QTY (Volume) ---")
         for i, row in df_top_qty.iterrows():
-            summary.append(f"{row['תיאור מוצר']}: {row['כמות']}")
+            summary.append(f"{row['תיאור מוצר']}: {row['כמות']} units")
+
+    # 5. Top Products (AMOUNT) - "The money makers" (NEW SECTION)
+    if not df_top_amt.empty:
+        summary.append("\n--- TOP PRODUCTS BY REVENUE (Value) ---")
+        for i, row in df_top_amt.iterrows():
+            # מניח שיש עמודת 'מכירות' או דומה, תתאים אם צריך
+            sales_val = row.get('מכירות', row.get('סכום', 0)) 
+            summary.append(f"{row['תיאור מוצר']}: {sales_val:,.0f} NIS")
 
     return "\n".join(summary)
 
 
-# --- Mode 1: Management Analysis ---
+# --- Mode 1: Management Analysis (OPTIMIZED PROMPT) ---
 def generate_management_analysis(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
     data_summary = summarize_data(
         kpis, df_sellers, df_top_qty, df_top_amt, items_df
@@ -114,56 +117,54 @@ def generate_management_analysis(kpis, df_sellers, df_top_qty, df_top_amt, items
 
     prompt = f"""
 SYSTEM ROLE:
-You are a Regional Retail Manager speaking directly to a Store Manager.
-You are practical, sharp, and focused on what matters on the sales floor.
-You do NOT explain data – you interpret it.
-
-LANGUAGE (STRICT):
-- Hebrew only
-- Spoken managerial Hebrew
-- Short, clear sentences
-- No motivational speeches
+You are an expert Regional Retail Manager analyzing store performance.
+You analyze store performance based on Sales, Transactions, Average Ticket, and Product Mix.
+You connect "Who is selling" (Sellers data) with "What is being sold" (Top Qty vs Top Revenue items).
 
 INPUT DATA:
 {data_summary}
 
-CRITICAL BUSINESS CONTEXT:
-- "מוכרן כללי" is a bonus pool, not a person.
-- Bonus Pool = (GeneralSellerRevenue / 1.18) * 0.01
-- If pool > 0 → suggest realistic incentive use
-- If pool = 0 → suggest actions to generate it
-- Never shame employees. Names allowed only positively.
+CRITICAL RULES:
+1. "מוכרן כללי" is a **VIRTUAL BONUS BUDGET** (Not a person).
+   - Calculation: (GeneralSellerRevenue / 1.18) * 0.01.
+   - Output: If > 0, suggest a team reward. If 0, warn about lost budget.
+2. METRICS: Use "Avg Ticket" (ממוצע עסקה) & "Tx Count" (כמות עסקאות). NO traffic/conversion talk.
 
-OUTPUT CONTRACT (MANDATORY):
-- Total length: 220–300 words
-- Each section: 2–4 sentences MAX
-- No generic statements
-- Every insight must be clearly connected to the data or explicitly say "אין מספיק נתון"
+ANALYSIS LOGIC (Mental Sandbox):
+1. **Staff Diagnostics:**
+   - High Tx + Low Avg Ticket = "Cashier Mode" (Moving volume, missing upsell).
+   - Low Tx + High Avg Ticket = "Sniper" (Quality sales, low energy/initiative).
+   - High Tx + High Avg Ticket = Star Performer.
+2. **Product Forensics:**
+   - Look at `Top Qty` items: Are they cheap accessories? If yes, this explains low Avg Ticket.
+   - Look at `Top Revenue` items: Are these the strategic flagship products? If not, the focus is wrong.
 
-STRUCTURE (DO NOT CHANGE TITLES):
+OUTPUT STRUCTURE (Hebrew, Direct, Managerial):
 
-1. התמונה הכללית
+1. תמונת מצב (Snapshot)
+   - One sentence on Total Sales vs Targets.
+   - Identification of the core problem: Is it Volume (not enough transactions) or Value (selling cheap items)?
 
-2. מה עובד טוב
+2. ניתוח צוות (Staff Performance)
+   - Compare specific employees.
+   - *Example:* "דני מתפקד כקופאי - 100 עסקאות (גבוה) אבל ממוצע 80₪ (נמוך). הוא לא מציע מוצרים משלימים."
+   - *Example:* "רונית מוכרת איכות - ממוצע 250₪, אבל חייבת להגביר קצב (רק 10 עסקאות)."
 
-3. איפה כדאי לעצור ולבדוק
+3. תמהיל מוצרים (Product Mix)
+   - Compare what sells in Volume vs. what makes Money.
+   - *Example:* "אנחנו מוכרים המון גרביים (Top Qty) אבל הנעליים היקרות (Top Revenue) לא זזות."
 
-4. מגמה לאורך החודש
+4. קופת בונוס ("מוכרן כללי")
+   - State the calculated amount (Show the math: Revenue/1.18 * 0.01).
+   - Suggest how to use it (or how to create it).
 
-5. ניהול צוות
+5. תוכנית פעולה (Action Plan)
+   - 2 concrete instructions based on the data.
+   - *Example:* "תדריך בוקר: פוקוס על המרת פריטי ה-Top Qty (הזולים) לפריטי ה-Top Amt (היקרים)."
 
-6. צעדים פרקטיים להמשך
-
-Allowed action categories:
-- רצפת מכירה
-- המרה
-- סל ממוצע
-- תמהיל קטגוריות
-- ניהול צוות
-
-Tone:
-Direct, human, calm.
-Like a 10-minute conversation between two professionals.
+TONE:
+Short sentences. Assertive. Professional.
+Every insight MUST have a number in parentheses.
 """
     return call_gemini(prompt)
 
