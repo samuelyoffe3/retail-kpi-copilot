@@ -148,12 +148,12 @@ def main():
 
     if not st.session_state.logged_in:
         st.subheader("Login")
-        branch_options = list(BRANCH_MAP.keys())
+        branch_options = list(BRANCH_MAP.keys()) + ["DEMO"]
         selected_branch = st.selectbox("Select Branch", branch_options)
         password = st.text_input("Enter Password", type="password")
         
         if st.button("Login"):
-            if password == "2410":
+            if selected_branch == "DEMO" or password == "2410":
                 st.session_state.logged_in = True
                 st.session_state.selected_branch = selected_branch
                 st.rerun()
@@ -196,6 +196,30 @@ def main():
 
     # Determine if we need to load/reload data
     if not st.session_state.data_loaded:
+        if selected_branch == "DEMO":
+            with st.spinner("טוען נתוני DEMO..."):
+                try:
+                    sales_path = r"APPDEMO\sales_demo.xlsx"
+                    items_path = r"APPDEMO\items_demo.xlsx"
+                    
+                    from services.load_sales import load_and_normalize_sales
+                    from services.load_items import load_and_normalize_items
+                    
+                    # Read using calamine engine as per requirements.txt and existing code
+                    with open(sales_path, "rb") as f:
+                        df_sales = load_and_normalize_sales(io.BytesIO(f.read()))
+                    with open(items_path, "rb") as f:
+                        df_items = load_and_normalize_items(io.BytesIO(f.read()))
+                    
+                    if df_sales is not None and df_items is not None:
+                        st.session_state.sales_df = df_sales
+                        st.session_state.items_df = df_items
+                        st.session_state.data_loaded = True
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"שגיאה בטעינת נתוני DEMO: {e}")
+            return
+
         folder_id = BRANCH_MAP.get(selected_branch)
         if not folder_id:
              st.error("Branch configuration error.")
