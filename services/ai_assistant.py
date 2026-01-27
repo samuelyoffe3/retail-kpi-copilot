@@ -1,15 +1,15 @@
 import streamlit as st
+
 from google.oauth2 import service_account
-import vertexai
-from vertexai.generative_models import GenerativeModel
-import os
-import json
 
 # --- Helper: Init Vertex AI ---
 def init_vertex_ai():
     """Initializes Vertex AI with secrets."""
     try:
         # 1. Try Environment Variable (Render Production)
+        import os
+        import json
+        
         env_creds = os.getenv("GEMINI_SERVICE_ACCOUNT_JSON")
         if env_creds:
             info = json.loads(env_creds)
@@ -19,7 +19,10 @@ def init_vertex_ai():
             if not project_id:
                return False, "project_id missing in JSON"
                
-            vertexai.init(project=project_id, credentials=gemini_creds)
+
+            import vertexai   
+            vertexai.init(project=project_id, location="us-central1", credentials=gemini_creds)
+
             return True, ""
 
         # 2. Fallback to Streamlit Secrets (Local Dev)
@@ -32,7 +35,8 @@ def init_vertex_ai():
         
         project_id = st.secrets["gemini_service_account"]["project_id"]
         
-        vertexai.init(project=project_id, credentials=gemini_creds)
+        import vertexai
+        vertexai.init(project=project_id, location="us-central1", credentials=gemini_creds)
         return True, ""
     except Exception as e:
         return False, str(e)
@@ -44,13 +48,14 @@ def call_gemini(prompt):
         return f"System Error: {msg}"
     
     try:
-        model = GenerativeModel("gemini-2.0-flash-exp") # או gemini-1.5-pro, לבחירתך
+        from vertexai.generative_models import GenerativeModel
+        model = GenerativeModel("gemini-2.5-pro")
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"AI Error: {str(e)}"
 
-# --- Data Summarization (UPDATED) ---
+# --- Data Summarization ---
 def summarize_data(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
     """
     Creates a text summary of the store data for the AI.
@@ -66,7 +71,7 @@ def summarize_data(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
         summary.append(f"Required Daily: {kpis.get('required_daily', 0):,.0f}")
         summary.append(f"Projected Finish: {kpis.get('projected_amount', 0):,.0f}")
         summary.append(f"Projected Percent: {kpis.get('projected_percent', 0):.1f}%")
-        summary.append(f"Days left: {kpis.get('days_in_month', 30) - kpis.get('elapsed_days', 0)}")
+        summary.append(f"Days left in month: {kpis.get('days_in_month', 30) - kpis.get('elapsed_days', 0)}")
     
     # 2. General Seller Stats (Bonus Logic)
     gen_seller_units = 0
@@ -92,79 +97,70 @@ def summarize_data(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
                 f"Avg Items: {row['ממוצע פריטים לעסקה']:.1f} | Complement Ratio: {row['יחס מוצר משלים לעסקה']:.2f}"
             )
             
-    # 4. Top Products (QTY) - "The volume drivers"
+    # 4. Top Products
     if not df_top_qty.empty:
-        summary.append("\n--- TOP PRODUCTS BY QTY (Volume) ---")
+        summary.append("\n--- TOP PRODUCTS (QTY) ---")
         for i, row in df_top_qty.iterrows():
-            summary.append(f"{row['תיאור מוצר']}: {row['כמות']} units")
-
-    # 5. Top Products (AMOUNT) - "The money makers" (NEW SECTION)
-    if not df_top_amt.empty:
-        summary.append("\n--- TOP PRODUCTS BY REVENUE (Value) ---")
-        for i, row in df_top_amt.iterrows():
-            # מניח שיש עמודת 'מכירות' או דומה, תתאים אם צריך
-            sales_val = row.get('מכירות', row.get('סכום', 0)) 
-            summary.append(f"{row['תיאור מוצר']}: {sales_val:,.0f} NIS")
+            summary.append(f"{row['תיאור מוצר']}: {row['כמות']}")
 
     return "\n".join(summary)
 
 
-# --- Mode 1: Management Analysis (OPTIMIZED PROMPT) ---
+# --- Mode 1: Management Analysis ---
 def generate_management_analysis(kpis, df_sellers, df_top_qty, df_top_amt, items_df):
     data_summary = summarize_data(
         kpis, df_sellers, df_top_qty, df_top_amt, items_df
     )
 
-    prompt = f"""
+   prompt = f"""
 SYSTEM ROLE:
 You are an expert Regional Retail Manager analyzing store performance.
-You analyze store performance based on Sales, Transactions, Average Ticket, and Product Mix.
-You connect "Who is selling" (Sellers data) with "What is being sold" (Top Qty vs Top Revenue items).
+You focus on "Basket Building" and "Transaction Volume" since we lack traffic data.
+You are direct, sharp, and results-oriented.
 
 INPUT DATA:
 {data_summary}
 
-CRITICAL RULES:
-1. "מוכרן כללי" is a **VIRTUAL BONUS BUDGET** (Not a person).
-   - Calculation: (GeneralSellerRevenue / 1.18) * 0.01.
-   - Output: If > 0, suggest a team reward. If 0, warn about lost budget.
-2. METRICS: Use "Avg Ticket" (ממוצע עסקה) & "Tx Count" (כמות עסקאות). NO traffic/conversion talk.
+CRITICAL RULES (ZERO TOLERANCE):
+1. "מוכרן כללי" is **NOT A PERSON**. It is a **VIRTUAL BONUS BUDGET**.
+   - NEVER refer to it as "he", "she", or "it performed well".
+   - ONLY calculate its value: (GeneralSellerRevenue / 1.18) * 0.01.
+   - Usage: If Value > 0 -> Suggest specific incentives (food, contest). If 0 -> Suggest how to create it.
+2. NO "Conversion" or "Traffic" talk. Use **"Avg Ticket" (ממוצע עסקה)** and **"Transaction Count" (כמות עסקאות)** instead.
 
-ANALYSIS LOGIC (Mental Sandbox):
-1. **Staff Diagnostics:**
-   - High Tx + Low Avg Ticket = "Cashier Mode" (Moving volume, missing upsell).
-   - Low Tx + High Avg Ticket = "Sniper" (Quality sales, low energy/initiative).
-   - High Tx + High Avg Ticket = Star Performer.
-2. **Product Forensics:**
-   - Look at `Top Qty` items: Are they cheap accessories? If yes, this explains low Avg Ticket.
-   - Look at `Top Revenue` items: Are these the strategic flagship products? If not, the focus is wrong.
+ANALYSIS PROTOCOL (Mental Sandbox):
+Diagnose the staff based on this logic:
+- High Tx Count + Low Avg Ticket = "Order Taker" (Cashier mindset, no upsell).
+- Low Tx Count + High Avg Ticket = "Cherry Picker" (Ignoring small customers, or slow service).
+- High Tx Count + High Avg Ticket = The Star Performer.
 
-OUTPUT STRUCTURE (Hebrew, Direct, Managerial):
+OUTPUT CONTRACT:
+- Language: Hebrew (Managerial, Spoken, Short).
+- Tone: No-nonsense.
+- Evidence: Every insight must have a number. Ex: "ממוצע עסקה נמוך (150₪)".
 
-1. תמונת מצב (Snapshot)
-   - One sentence on Total Sales vs Targets.
-   - Identification of the core problem: Is it Volume (not enough transactions) or Value (selling cheap items)?
+STRUCTURE:
 
-2. ניתוח צוות (Staff Performance)
-   - Compare specific employees.
-   - *Example:* "דני מתפקד כקופאי - 100 עסקאות (גבוה) אבל ממוצע 80₪ (נמוך). הוא לא מציע מוצרים משלימים."
-   - *Example:* "רונית מוכרת איכות - ממוצע 250₪, אבל חייבת להגביר קצב (רק 10 עסקאות)."
+1. השורה התחתונה (Snapshot)
+   - One sentence on Total Revenue vs Target.
+   - Identify the biggest operational gap: Is it volume (Transactions) or value (Avg Ticket)?
 
-3. תמהיל מוצרים (Product Mix)
-   - Compare what sells in Volume vs. what makes Money.
-   - *Example:* "אנחנו מוכרים המון גרביים (Top Qty) אבל הנעליים היקרות (Top Revenue) לא זזות."
+2. ניתוח כוח אדם (Staff Diagnostics)
+   - Compare employees based on Avg Ticket vs. Store Avg.
+   - Who is just "standing at the register" (High Tx, Low Ticket)?
+   - Who is selling well?
+   - *Example:* "דני מעביר הרבה עסקאות (150) אבל הממוצע נמוך (80₪) - הוא מתפקד כקופאי."
 
-4. קופת בונוס ("מוכרן כללי")
-   - State the calculated amount (Show the math: Revenue/1.18 * 0.01).
-   - Suggest how to use it (or how to create it).
+3. קופת הבונוסים ("מוכרן כללי")
+   - Calculate the pool amount available.
+   - If > 0: "יש לנו בקופה X שקלים. בוא נזמין פיצה/נעשה תחרות יומית."
+   - If 0: "הקופה ריקה. חייבים למכור על הכללי כדי לייצר אווירה."
 
-5. תוכנית פעולה (Action Plan)
-   - 2 concrete instructions based on the data.
-   - *Example:* "תדריך בוקר: פוקוס על המרת פריטי ה-Top Qty (הזולים) לפריטי ה-Top Amt (היקרים)."
+4. תוכנית עבודה (Next Steps)
+   - Give 2 clear instructions based on the diagnosis.
+   - If Avg Ticket is low -> Focus on "Add-on at checkout" (מוצרי קופה).
+   - If Tx Count is low -> Focus on "Approaching customers" (יוזמה).
 
-TONE:
-Short sentences. Assertive. Professional.
-Every insight MUST have a number in parentheses.
 """
     return call_gemini(prompt)
 
